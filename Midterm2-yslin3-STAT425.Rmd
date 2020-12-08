@@ -1,0 +1,245 @@
+---
+title: "Midterm2-yslin3-STAT425"
+author: "Rosa Lin"
+date: "11/14/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rats <- read.csv("~/Desktop/rats.txt", sep="")
+```
+
+```{r, include = FALSE}
+library(faraway)
+library(ggplot2)
+library(MASS)
+library(lmtest)
+library(pls)
+library(lars)
+```
+
+## Question 1 
+
+In an experiment to study the gain in weight of rats fed on four different diets, distinguished by the amount of protein (low and high) and by source of protein (beef and cereal), 10 rats were randomized to each of the 4 treatments and the weight gain in grams recorded. The data is in the file rats.txt. The variables are: ID = Observation Number; Source: Source of Protein (beef or cereal); Amount: Amount of protein (low, high); Wgain = Gain in weight in grams
+
+(a) Make appropriate plots of the data.
+
+```{r}
+par(mfrow = c(2,2))
+boxplot(Wgain ~ Amount , data = rats, outline = FALSE)
+stripchart(Wgain ~ Amount, data = rats, method = "jitter",
+           col = "rosybrown", vertical = TRUE, add = TRUE)
+boxplot(Wgain ~ Source, data = rats, outline = FALSE)
+stripchart(Wgain ~ Source, data = rats, method = "jitter",
+           col = "rosybrown", vertical = TRUE, add = TRUE)
+interaction.plot(rats$Amount, rats$Source, rats$Wgain)
+interaction.plot(rats$Source, rats$Amount, rats$Wgain)
+```
+
+
+(b) Determine whether there is an interaction between amount of protein and source of protein.
+
+```{r}
+int_mod = lm(Wgain ~ Amount * Source, data = rats)
+anova(int_mod)
+```
+
+There is no interaction between amount of protein and source of protein. We need to try an additive model. 
+
+```{r}
+add_mod = lm(Wgain ~ Amount + Source, data = rats)
+anova(add_mod)
+```
+
+
+(c) Determine whether there are statistically significant differences between amounts and also source of protein.
+
+```{r}
+anova(lm(Wgain ~ Amount, data = rats))
+anova(lm(Wgain ~ Source, data = rats))
+```
+
+According to the ANOVA table, there is a statistically significant difference between amount of protein , but not between source of protein. 
+
+
+(d) Present regression diagnostics for your chosen model and comment whether the model assumptions have been met.
+
+```{r}
+par(mfrow = c(1,2))
+qqnorm(add_mod$residuals)
+qqline(add_mod$residuals)
+plot(add_mod$fitted.values, add_mod$residuals, xlab = "Fitted", ylab = "Residuals")
+```
+
+```{r}
+ggplot() +
+  geom_point(aes(x = add_mod$fitted.values,
+                 y = add_mod$residuals)) +
+  geom_hline(aes(yintercept = 0, linetype = "X = 0"), color = 'blue') +
+  labs(linetype = "",
+       x = "Fitted Values", y = "Residuals") +
+  scale_linetype_manual(values = c(2))
+```
+
+
+```{r}
+bptest(add_mod)
+shapiro.test(add_mod$residuals)
+dwtest(add_mod)
+```
+
+The Breusch-Pagan test tells us that this model is homoskedastic since we fail to reject the null when p-value is 0.9643. Using the Shapiro-Wilk test, the p-value is 0.6878. Thus, we can conclude that the residuals are normally distributed. Furthermore, using the Durbin-Watson test, we can conclude that errors are not correlated at a significant level since the p-value is 0.8393. 
+
+
+## Question 2 
+
+Using the infmort data from the faraway library, find a simple model for the infant mortality in terms of the other variables. Be alert for transformations and unusual points. Interpret your model by explaining what the regression parameter estimates mean
+
+
+```{r}
+sim_mod = lm(mortality ~ ., data = infmort)
+summary(sim_mod)
+par(mfrow = c(2,2))
+plot(sim_mod)
+```
+
+First we fit the model with all variables. We can see from the results above that only income is significant. 
+
+```{r}
+ggplot(data = infmort, aes(x = income, y = mortality)) +
+  geom_point(color = 'maroon') +
+  geom_smooth(method = 'lm', formula = y ~ x, se = FALSE) +
+  labs(x = 'Income', y = 'Morality')
+```
+
+Plot does not fit well. 
+
+```{r}
+log_mod = lm(mortality ~ I(-log(income)), data = infmort)
+ggplot(data = infmort, aes(x = -log(income), y = mortality)) +
+  geom_point(color = 'maroon') +
+  geom_abline(intercept = coef(log_mod)[1], slope = coef(log_mod)[2], color = 'blue') +
+  labs(x = '-log(income)', y = 'Morality')
+```
+
+Plot seems to fit better after using -log(income) instead of all variables as predictors. 
+
+```{r}
+sim_mod2 = lm(mortality ~ region + oil + I(-log(income)), data = infmort)
+summary(sim_mod2)
+```
+
+Refit the model, but this time using -log(income). Most numbers are insignificant, but -log(income) is still significant. 
+
+```{r}
+sim_mod3 = boxcox(sim_mod)
+```
+
+
+Transform Y using log: 
+
+```{r}
+trans_mod = lm(log(mortality) ~ ., data = infmort)
+summary(trans_mod)
+```
+
+All variables are significant. The next step is to combine the Y transformation and -log(income). 
+
+```{r}
+fin_mod = lm(log(mortality) ~ region + oil + I(-log(income)), data = infmort)
+```
+
+High Leverages Observations: 
+
+```{r}
+n = nrow(model.matrix(fin_mod))
+p = ncol(model.matrix(fin_mod))
+lev = influence(fin_mod)$hat
+lev[lev>2*p/n]
+halfnorm(lev, 4, labs = row.names(infmort), ylab = "Leverages")
+```
+
+Influential Observations:
+
+```{r}
+io = cooks.distance(fin_mod)
+halfnorm(io, labs = row.names(infmort), ylab = "Cook's distance")
+```
+
+Outliers/Bonferroni Correction:
+
+```{r}
+out = rstudent(fin_mod)
+qt(0.05 / (2*n), n - p - 1)
+sort(abs(out), decreasing = TRUE)[1:5]
+```
+
+```{r}
+summary(fin_mod)
+```
+
+
+According to the results above, if the region is in Africa, there will be a 7.19231 increase in mortality. There is a significant positive relationship between income and mortality for African countries. 
+On the other hand,there is a negative relationship between income and mortality for the other regions. If the region is in Europe, there will be a -1.03383 decrease in mortality. If the region is in Asia, there will be a -0.71292 decrease in mortality. If the region is in Americas, there will be a -0.54984 decrease in mortality. If there are no oil exports, there will be a -0.64021 decrease in mortality. This indicates that no oil exporter countries have a positive effect on mortality. In addition, a one percent increase in income is associated with a 0.33985 decrease in mortality.
+
+
+
+
+## Question 3 
+
+Some near infrared spectra (NIR) on 60 samples of gasoline and corresponding octane numbers can be found by data(gasoline,package=”pls”). The NIR spectra were measured using diffuse reflectance as log(1/R) from 900 nm to 1700 nm in 2 nm intervals, giving 401 wavelengths. Compute the mean value for each wavelength and predict the corresponding response octane number using the following methods:
+
+
+```{r}
+data(gasoline,package="pls")
+str(gasoline)
+newgasoline<-as.matrix(gasoline)
+newgasoline <- data.frame(newgasoline)
+dim(newgasoline)
+mean_val = apply(newgasoline, 2, mean)
+mean_data = data.frame(mean_val)
+```
+
+
+(a) Principal Components Regression
+
+```{r}
+sam_mod = newgasoline[, 2:402]
+dim(sam_mod)
+pcr_mod = prcomp(sam_mod)
+pcr1_mod = prcomp(sam_mod, scale = TRUE)
+pcr2_mod = lm(newgasoline$octane ~ pcr1_mod$x[,1:3])
+summary(pcr2_mod)
+fin_mod = predict(pcr2_mod, mean_data)
+tail(fin_mod)
+mean2_val = apply(newgasoline[,-1], 2, mean)
+fin2_mod = pcr(gasoline$octane ~ gasoline[,-1])
+predict(fin2_mod, t(as.matrix(mean2_val)), ncomp = 3)
+```
+
+```{r}
+plot(pcr1_mod$sdev, type = "l", ylab = "SD of PC", xlab = "PC number")
+```
+
+(b) Lasso Regression
+
+```{r}
+newgasoline <- as.matrix(gasoline)
+lasso_mod = lars(newgasoline[, -1], gasoline$octane, type = "lasso")
+lasso_cv = cv.lars(newgasoline[, -1], gasoline$octane)
+fit = lasso_cv$index[which.min(lasso_cv$cv)]
+predict(lasso_mod, t(as.matrix(mean2_val)), s = fit, mode = "fraction")$fit
+```
+
+
+(c) Ridge Regression (Extra Credit)
+
+```{r}
+ridge_mod = lm.ridge(gasoline$octane ~ newgasoline[,-1], lambda = seq(0, 50, len = 101))
+which.min(ridge_mod$GCV)
+cbind(1, as.matrix(t(mean2_val))) %*% coef(ridge_mod)[19, ]
+```
+
